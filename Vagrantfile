@@ -139,7 +139,7 @@ Vagrant.configure("2") do |config|
       end
 
       config.vm.provision :shell, :inline => "
-        curl -L https://github.com/docker/compose/releases/download/VERSION_NUM/docker-compose-`uname -s`-`uname -m` > ./docker-compose
+        curl -L https://github.com/docker/compose/releases/download/1.4.2/docker-compose-`uname -s`-`uname -m` > ./docker-compose
         chmod +x ./docker-compose
         cd Rocket.Chat
         ../docker-compose up -d
