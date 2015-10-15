@@ -1,150 +1,88 @@
 # -*- mode: ruby -*-
-# # vi: set ft=ruby :
+# vi: set ft=ruby :
 
-require 'fileutils'
+# All Vagrant configuration is done below. The "2" in Vagrant.configure
+# configures the configuration version (we support older styles for
+# backwards compatibility). Please don't change it unless you know what
+# you're doing.
+Vagrant.configure(2) do |config|
+  # The most common configuration options are documented and commented below.
+  # For a complete reference, please see the online documentation at
+  # https://docs.vagrantup.com.
 
-Vagrant.require_version ">= 1.6.0"
+  # Every Vagrant development environment requires a box. You can search for
+  # boxes at https://atlas.hashicorp.com/search.
+  config.vm.box = "debian/jessie64"
 
-CLOUD_CONFIG_PATH = File.join(File.dirname(__FILE__), "user-data")
-CONFIG = File.join(File.dirname(__FILE__), "config.rb")
+  # Disable automatic box update checking. If you disable this, then
+  # boxes will only be checked for updates when the user runs
+  # `vagrant box outdated`. This is not recommended.
+  # config.vm.box_check_update = false
 
-# Defaults for config options defined in CONFIG
-$num_instances = 1
-$instance_name_prefix = "core"
-$update_channel = "alpha"
-$image_version = "current"
-$enable_serial_logging = false
-$share_home = false
-$vm_gui = false
-$vm_memory = 2048
-$vm_cpus = 2
-$shared_folders = {}
-$forwarded_ports = {}
+  # Create a forwarded port mapping which allows access to a specific port
+  # within the machine from a port on the host machine. In the example below,
+  # accessing "localhost:8080" will access port 80 on the guest machine.
+  # config.vm.network "forwarded_port", guest: 80, host: 8080
 
-# Attempt to apply the deprecated environment variable NUM_INSTANCES to
-# $num_instances while allowing config.rb to override it
-if ENV["NUM_INSTANCES"].to_i > 0 && ENV["NUM_INSTANCES"]
-  $num_instances = ENV["NUM_INSTANCES"].to_i
-end
+  # Create a private network, which allows host-only access to the machine
+  # using a specific IP.
+  config.vm.network "private_network", ip: "192.168.33.10"
 
-if File.exist?(CONFIG)
-  require CONFIG
-end
+  # Create a public network, which generally matched to bridged network.
+  # Bridged networks make the machine appear as another physical device on
+  # your network.
+  # config.vm.network "public_network"
 
-# Use old vb_xxx config variables when set
-def vm_gui
-  $vb_gui.nil? ? $vm_gui : $vb_gui
-end
+  # Share an additional folder to the guest VM. The first argument is
+  # the path on the host to the actual folder. The second argument is
+  # the path on the guest to mount the folder. And the optional third
+  # argument is a set of non-required options.
+  # config.vm.synced_folder "../data", "/vagrant_data"
+  config.vm.synced_folder ".", "/home/vagrant/Rocket.Chat", id: "rocketchat", :nfs => true, :mount_options => ['nolock,vers=3,udp']
 
-def vm_memory
-  $vb_memory.nil? ? $vm_memory : $vb_memory
-end
+  # Provider-specific configuration so you can fine-tune various
+  # backing providers for Vagrant. These expose provider-specific options.
+  # Example for VirtualBox:
+  #
+  config.vm.provider "virtualbox" do |vb|
+    # Display the VirtualBox GUI when booting the machine
+    vb.gui = false
 
-def vm_cpus
-  $vb_cpus.nil? ? $vm_cpus : $vb_cpus
-end
-
-Vagrant.configure("2") do |config|
-  # always use Vagrants insecure key
-  config.ssh.insert_key = false
-
-  config.vm.box = "coreos-%s" % $update_channel
-  if $image_version != "current"
-      config.vm.box_version = $image_version
+    # Customize the amount of memory on the VM:
+    vb.memory = "1024"
   end
-  config.vm.box_url = "http://%s.release.core-os.net/amd64-usr/%s/coreos_production_vagrant.json" % [$update_channel, $image_version]
+  #
+  # View the documentation for the provider you are using for more
+  # information on available options.
 
-  ["vmware_fusion", "vmware_workstation"].each do |vmware|
-    config.vm.provider vmware do |v, override|
-      override.vm.box_url = "http://%s.release.core-os.net/amd64-usr/%s/coreos_production_vagrant_vmware_fusion.json" % [$update_channel, $image_version]
-    end
-  end
+  # Define a Vagrant Push strategy for pushing to Atlas. Other push strategies
+  # such as FTP and Heroku are also available. See the documentation at
+  # https://docs.vagrantup.com/v2/push/atlas.html for more information.
+  # config.push.define "atlas" do |push|
+  #   push.app = "YOUR_ATLAS_USERNAME/YOUR_APPLICATION_NAME"
+  # end
 
-  config.vm.provider :virtualbox do |v|
-    # On VirtualBox, we don't have guest additions or a functional vboxsf
-    # in CoreOS, so tell Vagrant that so it can be smarter.
-    v.check_guest_additions = false
-    v.functional_vboxsf     = false
-  end
+  # Enable provisioning with a shell script. Additional provisioners such as
+  # Puppet, Chef, Ansible, Salt, and Docker are also available. Please see the
+  # documentation for more information about their specific syntax and use.
+  config.vm.provision "shell", inline: <<-SHELL
 
-  # plugin conflict
-  if Vagrant.has_plugin?("vagrant-vbguest") then
-    config.vbguest.auto_update = false
-  end
+    echo  "Installing MongoDB"
+    sudo apt-key adv --keyserver keyserver.ubuntu.com --recv 7F0CEB10
+    echo "deb http://repo.mongodb.org/apt/debian wheezy/mongodb-org/3.0 main" | sudo tee /etc/apt/sources.list.d/mongodb-org-3.0.list
+    sudo apt-get update
+    sudo apt-get install -y mongodb-org
+    echo  "Starting MongoDB"
+    sudo service mongod start
 
-  (1..$num_instances).each do |i|
-    config.vm.define vm_name = "%s-%02d" % [$instance_name_prefix, i] do |config|
-      config.vm.hostname = vm_name
+    echo  "Installing meteor"
+    sudo apt-get install -y curl
+    curl https://install.meteor.com/ | sh
 
-      if $enable_serial_logging
-        logdir = File.join(File.dirname(__FILE__), "log")
-        FileUtils.mkdir_p(logdir)
+    export MONGO_URL=mongodb://localhost:27017/rocketchat
 
-        serialFile = File.join(logdir, "%s-serial.txt" % vm_name)
-        FileUtils.touch(serialFile)
-
-        ["vmware_fusion", "vmware_workstation"].each do |vmware|
-          config.vm.provider vmware do |v, override|
-            v.vmx["serial0.present"] = "TRUE"
-            v.vmx["serial0.fileType"] = "file"
-            v.vmx["serial0.fileName"] = serialFile
-            v.vmx["serial0.tryNoRxLoss"] = "FALSE"
-          end
-        end
-
-        config.vm.provider :virtualbox do |vb, override|
-          vb.customize ["modifyvm", :id, "--uart1", "0x3F8", "4"]
-          vb.customize ["modifyvm", :id, "--uartmode1", serialFile]
-        end
-      end
-
-      if $expose_docker_tcp
-        config.vm.network "forwarded_port", guest: 2375, host: ($expose_docker_tcp + i - 1), auto_correct: true
-      end
-
-      $forwarded_ports.each do |guest, host|
-        config.vm.network "forwarded_port", guest: guest, host: host, auto_correct: true
-      end
-
-      ["vmware_fusion", "vmware_workstation"].each do |vmware|
-        config.vm.provider vmware do |v|
-          v.gui = vm_gui
-          v.vmx['memsize'] = vm_memory
-          v.vmx['numvcpus'] = vm_cpus
-        end
-      end
-
-      config.vm.provider :virtualbox do |vb|
-        vb.gui = vm_gui
-        vb.memory = vm_memory
-        vb.cpus = vm_cpus
-      end
-
-      ip = "172.17.8.#{i+100}"
-      config.vm.network :private_network, ip: ip
-
-      # Uncomment below to enable NFS for sharing the host machine into the coreos-vagrant VM.
-      config.vm.synced_folder ".", "/home/core/Rocket.Chat", id: "core-rocketChat", :nfs => true, :mount_options => ['nolock,vers=3,udp']
-      $shared_folders.each_with_index do |(host_folder, guest_folder), index|
-        config.vm.synced_folder host_folder.to_s, guest_folder.to_s, id: "core-share%02d" % index, nfs: true, mount_options: ['nolock,vers=3,udp']
-      end
-
-      if $share_home
-        config.vm.synced_folder ENV['HOME'], ENV['HOME'], id: "home", :nfs => true, :mount_options => ['nolock,vers=3,udp']
-      end
-
-      if File.exist?(CLOUD_CONFIG_PATH)
-        config.vm.provision :file, :source => "#{CLOUD_CONFIG_PATH}", :destination => "/tmp/vagrantfile-user-data"
-        config.vm.provision :shell, :inline => "mv /tmp/vagrantfile-user-data /var/lib/coreos-vagrant/", :privileged => true
-      end
-
-      config.vm.provision :shell, :inline => "
-        curl -L https://github.com/docker/compose/releases/download/1.4.2/docker-compose-`uname -s`-`uname -m` > ./docker-compose
-        chmod +x ./docker-compose
-        cd Rocket.Chat
-        ../docker-compose up -d
-      "
-
-    end
-  end
+    cd /home/vagrant/Rocket.Chat
+    echo "Running meteor"
+    meteor
+  SHELL
 end
